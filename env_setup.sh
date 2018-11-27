@@ -1,4 +1,4 @@
-configure() {
+config() {
     conan install -if build .
     cmake -H. -Bbuild
 }
@@ -7,6 +7,10 @@ build() {
     cmake --build build
 }
 
+cleanall() {
+    rm -rf build/
+}
+
 run() {
-    ./build/bin/copper
+    ./build/copper/bin/copper
 }
