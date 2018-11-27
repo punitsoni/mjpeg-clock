@@ -1,11 +1,15 @@
 project(copper)
-cmake_minimum_required(VERSION 3.1.0)
+# cmake_minimum_required(VERSION 3.1.0)
 
 set(CMAKE_VERBOSE_MAKEFILE TRUE)
 
 # Conan setup
 include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
 conan_basic_setup(KEEP_RPATHS)
+
+message(CONAN_TARGETS= "${CONAN_TARGETS}")
+message(CONAN_LIBS= "${CONAN_LIBS}")
+
 
 # Find includes in corresponding build directories
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -18,8 +22,18 @@ set(CMAKE_AUTOUIC ON)
 find_package(Qt5Widgets CONFIG REQUIRED)
 find_package(Qt5Gui CONFIG REQUIRED)
 
-add_executable(copper copper_main.cc)
-target_link_libraries(copper ${CONAN_LIBS} Qt5::Widgets Qt5::Gui)
+add_executable(copper)
+target_sources(copper
+    PRIVATE
+    copper_main.cc
+    mainwindow.cc
+    mainwindow.h
+)
+target_link_libraries(copper
+    ${CONAN_LIBS}
+    Qt5::Widgets
+    Qt5::Gui
+)
 set_target_properties(copper PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
