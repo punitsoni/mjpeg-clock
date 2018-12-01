@@ -12,5 +12,6 @@ cleanall() {
 }
 
 run() {
-    ./build/copper/bin/copper
+    # ./build/copper/bin/copper
+    ./build/mjclock/bin/mjclock
 }
