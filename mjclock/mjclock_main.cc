@@ -111,12 +111,12 @@ std::vector<uint8_t> CreateTestJpeg() {
   return buffer;
 }
 
-static const char *s_http_port = "8000";
-
 void http_handle_root(struct mg_connection *conn, struct http_message *req) {
   const std::string res =
-      "<h1>Hello World.</h1>"
-      "<img src=\"test_img\">";
+      "<html><body><h1>Hello World.</h1>"
+      // "<img src=\"test_img\">"
+      "<p><h2>Motion JPEG</h2>"
+      "<img src=\"test_mjpeg\"></p></body></html>";
 
   mg_send_head(conn, 200, res.size(), "Content-Type: text/html");
   mg_printf(conn, "%.*s", (int)res.size(), res.c_str());
@@ -128,7 +128,113 @@ void http_handle_testimg(struct mg_connection *conn, struct http_message *req) {
   mg_send(conn, &jpeg[0], jpeg.size());
 }
 
-static void ev_handler(struct mg_connection *conn, int ev, void *p) {
+void http_handle_test_chunk(struct mg_connection *conn,
+                            struct http_message *req) {
+  // mg_printf(conn, "%s",
+  //           "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n");
+
+  // mg_send_head(conn, 200, -1,
+  //              "Cache-Control: no-cache\r\n"
+  //              "Content-Type: text/json\r\n");
+  mg_send_head(conn, 200, -1,
+               "Cache-Control: no-cache\r\n"
+               "Content-Type: text/json");
+
+  mg_printf_http_chunk(conn, "{ \"result\": %lf }", 123.0);
+  mg_send_http_chunk(conn, "", 0);
+}
+
+class TestFrameGen {
+ public:
+  TestFrameGen() : img(cv::Mat::zeros(480, 640, CV_8UC3)) {}
+  std::vector<uint8_t> GenerateNextFrame() {
+    int ms_per_min = 1000 * 60;
+    int ms_per_sec = 1000;
+    int time_ms = millis;
+    int time_min = time_ms / ms_per_min;
+    time_ms = time_ms % ms_per_min;
+    int time_sec = time_ms / ms_per_sec;
+    time_ms = time_ms % ms_per_sec;
+
+    const std::string text =
+        absl::StrFormat("%02d:%02d:%03d", time_min, time_sec, time_ms);
+
+    GenerateFrame(&img, text, frameid, millis);
+
+    // encode the frame to jpeg
+    std::vector<uint8_t> buffer;
+    std::vector<int> params;
+    params.push_back(cv::IMWRITE_JPEG_QUALITY);
+    params.push_back(80);
+    cv::imencode(".jpg", img, buffer, params);
+    millis += int(1000 / fps);
+    frameid++;
+    return buffer;
+  }
+
+  float fps = 30.0;
+  int millis = 0;
+  int frameid = 0;
+  cv::Mat img;
+};
+
+struct mjpg_conn_state {};
+
+void http_handle_test_mjpeg(struct mg_connection *conn,
+                            struct http_message *req) {
+  // mg_send_head(conn, 200, -1,
+  //              "Cache-Control: no-cache\r\n"
+  //              "Cache-Control: private\r\n"
+  //              "Content-Type: multipart/x-mixed-replace; boundary=frame");
+
+  double lastframe_time = mg_time();
+
+  mg_printf(conn,
+            "HTTP/1.1 200 OK\r\n"
+            "Cache-Control: no-cache\r\n"
+            "Cache-Control: private\r\n"
+            "Content-Type: multipart/x-mixed-replace; "
+            "boundary=frame_boundary\r\n\r\n");
+
+  TestFrameGen *gen = new TestFrameGen();
+  absl::PrintF("sending frame %d\n", gen->frameid);
+  std::vector<uint8_t> buffer = gen->GenerateNextFrame();
+
+  mg_printf(conn,
+            "--frame_boundary\r\n"
+            "Content-Type: image/jpeg\r\n"
+            "Content-Length: %lu\r\n\r\n",
+            buffer.size());
+
+  mg_send(conn, (const char *)&buffer[0], buffer.size());
+  mg_printf(conn, "\r\n");
+
+  // setup timer
+  conn->user_data = (void *)gen;
+  mg_set_timer(conn, lastframe_time + 0.030);  // 30 ms
+
+  // const std::string frame_header = absl::StrFormat(
+  //     "--frame\r\n"
+  //     "Content-Type: image/jpeg\r\n"
+  //     "Content-Length: %lu\r\n\r\n",
+  //     buffer.size());
+
+  // mg_printf_http_chunk(conn, "--frame\r\n");
+  // mg_printf_http_chunk(conn, "Content-Type: image/jpeg\r\n");
+  // mg_printf_http_chunk(conn, "Content-Length: %lu\r\n\r\n", buffer.size());
+
+  // mg_send_http_chunk(conn, frame_header.c_str(), frame_header.size());
+  // mg_send_http_chunk(conn, (const char *)&buffer[0], buffer.size());
+
+  // std::this_thread::sleep_for(std::chrono::milliseconds(30));
+
+  // mg_send_http_chunk(conn, "", 0);
+  // absl::PrintF("test_mjpeg done.\n");
+}
+
+static void event_handler(struct mg_connection *conn, int ev, void *p) {
+  // absl::PrintF("event=%d\n", ev);
+
   if (ev == MG_EV_HTTP_REQUEST) {
     struct http_message *req = (struct http_message *)p;
 
@@ -144,25 +250,57 @@ static void ev_handler(struct mg_connection *conn, int ev, void *p) {
     absl::PrintF("query: %s\n", request_query);
     absl::PrintF("--------------------------------\n");
 
+    absl::PrintF("conn=%p, conn->flags=%x\n", conn, conn->flags);
+
     if (request_uri == "/") {
       return http_handle_root(conn, req);
     }
     if (request_uri == "/test_img") {
       return http_handle_testimg(conn, req);
     }
+    if (request_uri == "/test_mjpeg") {
+      return http_handle_test_mjpeg(conn, req);
+    }
+    if (request_uri == "/test_chunk") {
+      return http_handle_test_chunk(conn, req);
+    }
+  } else if (ev == MG_EV_SEND) {
+    // absl::PrintF("conn=%p, MG_EV_SEND\n", conn);
+  } else if (ev == MG_EV_CLOSE) {
+    absl::PrintF("conn=%p, MG_EV_CLOSE\n", conn);
+  } else if (ev == MG_EV_TIMER) {
+    double lastframe_time = *(double *)p;
+    TestFrameGen *gen = (TestFrameGen *)(conn->user_data);
+
+    absl::PrintF("sending frame %d\n", gen->frameid);
+    std::vector<uint8_t> buffer = gen->GenerateNextFrame();
+
+    mg_printf(conn,
+              "--frame_boundary\r\n"
+              "Content-Type: image/jpeg\r\n"
+              "Content-Length: %lu\r\n\r\n",
+              buffer.size());
+
+    mg_send(conn, (const char *)&buffer[0], buffer.size());
+    mg_printf(conn, "\r\n");
+    mg_set_timer(
+        conn,
+        lastframe_time + 0.03);  // Send us timer event again after 0.5 seconds
   }
 }
 
 void func() {
   struct mg_mgr mgr;
-  struct mg_connection *c;
-
   mg_mgr_init(&mgr, NULL);
-  c = mg_bind(&mgr, s_http_port, ev_handler);
-  mg_set_protocol_http_websocket(c);
+
+  struct mg_connection *conn = mg_bind(&mgr, "8000", event_handler);
+
+  // absl::PrintF("conn=%p\n", conn);
+
+  mg_set_protocol_http_websocket(conn);
 
   cout << "Starting server." << endl;
-  for (;;) {
+  while (true) {
     mg_mgr_poll(&mgr, 1000);
   }
   mg_mgr_free(&mgr);
