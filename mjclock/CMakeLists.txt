@@ -14,6 +14,7 @@ target_sources(mjclock
     PRIVATE
     mjclock_main.cc
     mongoose.c
+    test_video_gen.cc
 )
 target_link_libraries(mjclock
     ${CONAN_LIBS}
