@@ -9,7 +9,7 @@
 
 int next_conn_id = 1;
 
-const std::string kDefaultDocumentRoot = "./mjclock/static";
+const std::string kDefaultDocumentRoot = "./static";
 const std::string kMjpegFrameBoundary = "FRAME_BOUNDARY";
 
 // class HttpConnection {
