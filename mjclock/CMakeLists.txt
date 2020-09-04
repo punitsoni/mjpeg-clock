@@ -20,7 +20,7 @@ target_link_libraries(mjclock
     ${CONAN_LIBS}
 )
 set_target_properties(mjclock PROPERTIES
-    CXX_STANDARD 14
+    CXX_STANDARD 17
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )
